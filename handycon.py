@@ -901,7 +901,7 @@ async def capture_touch_events():
             try:
                 async for event in touch_device.async_read_loop():
                     if event.type == e.EV_KEY and event.code == e.BTN_TOUCH and event.value == 1: # Touch event
-                        await do_rumble(0, 75, 1000, 0)
+                        await do_rumble(0, 275, 1000, 0)
             except Exception as err:
                 logger.error(f"{err} | Error reading events from power device.")
                 touch_device = None
