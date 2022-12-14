@@ -25,7 +25,7 @@ from time import sleep, time
 
 logging.basicConfig(format="[%(asctime)s | %(filename)s:%(lineno)s:%(funcName)s] %(message)s",
                     datefmt="%y%m%d_%H:%M:%S",
-                    level=logging.INFO
+                    level=logging.DEBUG
                     )
 
 logger = logging.getLogger(__name__)
@@ -96,6 +96,7 @@ keyboard_device = None
 ui_device = None
 power_device = None
 system_type = None
+touch_device = None
 
 # Last right joystick X and Y value
 # Holding the last value allows us to maintain motion while a joystick is held.
@@ -420,6 +421,34 @@ def get_powerkey():
         return False
     else:
         logger.info(f"Found {power_device.name}. Capturing input data.")
+        return True
+
+def get_touchscreen():
+    global touch_device
+
+    # Identify system input event devices.
+    try:
+        devices_original = [InputDevice(path) for path in list_devices()]
+    # Some funky stuff happens sometimes when booting. Give it another shot.
+    except Exception as err:
+        logger.error("Error when scanning event devices. Restarting scan.")
+        sleep(DETECT_DELAY)
+        return False
+
+    # Grab the built-in devices. This will give us exclusive acces to the devices and their capabilities.
+    for device in devices_original:
+
+        # Power Button
+        if device.name == 'Goodix Capacitive TouchScreen' and device.phys == "input/ts":
+            touch_device = device
+            break
+
+    if not touch_device:
+        logger.warn("Touchscreen device not yet found. Restarting scan.")
+        sleep(DETECT_DELAY)
+        return False
+    else:
+        logger.info(f"Found {touch_device.name}. Capturing input data.")
         return True
 
 def get_gyro():
@@ -864,6 +893,25 @@ async def capture_gyro_events():
             elif gyro_device == False:
                 break
 
+async def capture_touch_events():
+    global touch_device
+
+    while running:
+        if touch_device:
+            try:
+                async for event in touch_device.async_read_loop():
+                    if event.type == e.EV_KEY and event.code == e.BTN_TOUCH and event.value == 1: # Touch event
+                        await do_rumble(0, 75, 1000, 0)
+            except Exception as err:
+                logger.error(f"{err} | Error reading events from power device.")
+                touch_device = None
+        else:
+            logger.info("Attempting to grab touchscreen device...")
+            get_touchscreen()
+            await asyncio.sleep(DETECT_DELAY)
+
+
+
 # Captures power events and handles long or short press events.
 async def capture_power_events():
     global HOME_PATH
@@ -1084,6 +1132,7 @@ def main():
     asyncio.ensure_future(capture_ff_events())
     asyncio.ensure_future(capture_keyboard_events())
     asyncio.ensure_future(capture_power_events())
+    asyncio.ensure_future(capture_touch_events())
     asyncio.ensure_future(ryzenadj_control(loop))
     logger.info("Handheld Game Console Controller Service started.")
 
