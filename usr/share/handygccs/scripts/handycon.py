@@ -1004,57 +1004,62 @@ async def capture_power_events():
 async def capture_ff_events():
     ff_effect_id_set = set()
 
-    async for event in ui_device.async_read_loop():
-        if controller_device is None:
-            # Slow down the loop so we don't waste millions of cycles and overheat our controller.
-            await asyncio.sleep(.5)
-            continue
+    while running:
+        try:
+            async for event in ui_device.async_read_loop():
+                if controller_device is None:
+                    # Slow down the loop so we don't waste millions of cycles and overheat our controller.
+                    await asyncio.sleep(.5)
+                    continue
 
-        if event.type == e.EV_FF:
-            # Forward FF event to controller.
-            controller_device.write(e.EV_FF, event.code, event.value)
-            continue
+                if event.type == e.EV_FF:
+                    # Forward FF event to controller.
+                    controller_device.write(e.EV_FF, event.code, event.value)
+                    continue
 
-        # Programs will submit these EV_UINPUT events to ensure the device is capable.
-        # Doing this forever doesn't seem to pose a problem, and attempting to ignore
-        # any of them causes the program to halt.
-        if event.type != e.EV_UINPUT:
-            continue
+                # Programs will submit these EV_UINPUT events to ensure the device is capable.
+                # Doing this forever doesn't seem to pose a problem, and attempting to ignore
+                # any of them causes the program to halt.
+                if event.type != e.EV_UINPUT:
+                    continue
 
-        if event.code == e.UI_FF_UPLOAD:
-            # Upload to the virtual device to prevent threadlocking. This does nothing else
-            upload = ui_device.begin_upload(event.value)
-            effect = upload.effect
+                if event.code == e.UI_FF_UPLOAD:
+                    # Upload to the virtual device to prevent threadlocking. This does nothing else
+                    upload = ui_device.begin_upload(event.value)
+                    effect = upload.effect
 
-            if effect.id not in ff_effect_id_set:
-                effect.id = -1 # set to -1 for kernel to allocate a new id. all other values throw an error for invalid input.
+                    if effect.id not in ff_effect_id_set:
+                        effect.id = -1 # set to -1 for kernel to allocate a new id. all other values throw an error for invalid input.
 
-            try:
-                # Upload to the actual controller.
-                effect_id = controller_device.upload_effect(effect)
-                effect.id = effect_id
+                    try:
+                        # Upload to the actual controller.
+                        effect_id = controller_device.upload_effect(effect)
+                        effect.id = effect_id
 
-                ff_effect_id_set.add(effect_id)
+                        ff_effect_id_set.add(effect_id)
 
-                upload.retval = 0
-            except IOError as err:
-                logger.error(f"{err} | Error uploading effect {effect.id}.")
-                upload.retval = -1
-            
-            ui_device.end_upload(upload)
+                        upload.retval = 0
+                    except IOError as err:
+                        logger.error(f"{err} | Error uploading effect {effect.id}.")
+                        upload.retval = -1
+                    
+                    ui_device.end_upload(upload)
 
-        elif event.code == e.UI_FF_ERASE:
-            erase = ui_device.begin_erase(event.value)
+                elif event.code == e.UI_FF_ERASE:
+                    erase = ui_device.begin_erase(event.value)
 
-            try:
-                controller_device.erase_effect(erase.effect_id)
-                ff_effect_id_set.remove(erase.effect_id)
-                erase.retval = 0
-            except IOError as err:
-                logger.error(f"{err} | Error erasing effect {erase.effect_id}.")
-                erase.retval = -1
+                    try:
+                        controller_device.erase_effect(erase.effect_id)
+                        ff_effect_id_set.remove(erase.effect_id)
+                        erase.retval = 0
+                    except IOError as err:
+                        logger.error(f"{err} | Error erasing effect {erase.effect_id}.")
+                        erase.retval = -1
 
-            ui_device.end_erase(erase)
+                    ui_device.end_erase(erase)
+        except Exception as err:
+            logger.error(f"{err} | Error capturing ff events.")
+            await asyncio.sleep(FF_DELAY)
 
 # Emits passed or generated events to the virtual controller.
 async def emit_events(events: list):
